@@ -31,11 +31,13 @@ Options
 *-f* <file>::
 	Copy file from the host to the chroot
 
-*-d* <dir>::
-	Bind directory into build chroot as read-write
+*-d* <SRC> | <SRC>,<DST>::
+	Bind directory into build chroot as read-write. If only <SRC> argument specified it is bound at <SRC> path inside chroot. If 
+	<SRC> and <DST> arguments specified, <SRC> is bound at <DST> path inside chroot
 
-*-D* <dir>::
-	Bind directory into build chroot as read-only
+*-D* <SRC> | <SRC>,<DST>::
+	Bind directory into build chroot as read-only. If only <SRC> argument specified it is bound at <SRC> path inside chroot. If 
+	<SRC> and <DST> arguments specified, <SRC> is bound at <DST> path inside chroot
 
 *-s*::
 	Do not run setarch
