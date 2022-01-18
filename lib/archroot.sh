@@ -48,14 +48,18 @@ subvolume_delete_recursive() {
 
 	is_subvolume "$1" || return 0
 
-	while IFS= read -d $'\0' -r subvol; do
-		if ! subvolume_delete_recursive "$subvol"; then
+	if [[ $EUID == 0 || -n "$(findmnt -T "$1" -O user_subvol_rm_allowed)" ]]; then
+		while IFS= read -d $'\0' -r subvol; do
+			if ! subvolume_delete_recursive "$subvol"; then
+				return 1
+			fi
+		done < <(find "$1" -mindepth 1 -xdev -depth -inum 256 -print0)
+		if ! btrfs subvolume delete "$1" &>/dev/null; then
+			error "Unable to delete subvolume %s" "$subvol"
 			return 1
 		fi
-	done < <(find "$1" -mindepth 1 -xdev -depth -inum 256 -print0)
-	if ! btrfs subvolume delete "$1" &>/dev/null; then
-		error "Unable to delete subvolume %s" "$subvol"
-		return 1
+	else
+		rm -rf "$1"
 	fi
 
 	return 0

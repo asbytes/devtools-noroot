@@ -1,0 +1,48 @@
+arch-bwrap(1)
+=============
+
+Name
+----
+arch-bwrap - Run a command or OS in a light-weight namespace sandbox
+
+Synopsis
+--------
+arch-bwrap [options] working-dir [bwrap arguments]
+
+Description
+-----------
+
+'arch-bwrap' is a wrapper around bubblewrap to run command in a
+namespace sandbox such as a directory including base utilities of a OS.
+It is used to build package(s) in given clean and defined environment.
+
+Options
+-------
+
+*-C* <file>::
+	Location of a pacman config file
+
+*-M* <file>::
+	Location of a makepkg config file
+
+*-c* <dir>::
+	Set pacman cache, if no directory is specified the passed pacman.conf's cachedir is used with a fallback to '/etc/pacman.conf'
+
+*-f* <file>::
+	Copy file from the host to the chroot
+
+*-d* <dir>::
+	Bind directory into build chroot as read-write
+
+*-D* <dir>::
+	Bind directory into build chroot as read-only
+
+*-s*::
+	Do not run setarch
+
+*-r*::
+	Run command as fake root inside chroot
+
+*-h*::
+	Show this usage message
+

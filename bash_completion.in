@@ -50,6 +50,25 @@ _makechrootpkg() {
 } &&
 complete -F _makechrootpkg makechrootpkg
 
+_makechrootpkg-noroot() {
+  local cur
+  COMPREPLY=()
+  _get_comp_words_by_ref cur
+
+  case $cur in
+    -*)
+       COMPREPLY=( $( compgen -W '-I -c -h -l -r -u' -- "$cur" ) )
+       ;;
+    *)
+      _filedir
+      return 0
+      ;;
+  esac
+
+  true
+} &&
+complete -F _makechrootpkg-noroot makechrootpkg-noroot
+
 _mkarchroot() {
   local cur
   COMPREPLY=()
@@ -69,7 +88,7 @@ _mkarchroot() {
 } &&
 complete -F _mkarchroot mkarchroot
 
-_arch-nspawn() {
+_mkarchroot-noroot() {
   local cur
   COMPREPLY=()
   _get_comp_words_by_ref cur
@@ -86,5 +105,44 @@ _arch-nspawn() {
 
   true
 } &&
+complete -F _mkarchroot-noroot mkarchroot-noroot
+
+_arch-nspawn() {
+  local cur
+  COMPREPLY=()
+  _get_comp_words_by_ref cur
+
+  case $cur in
+    -*)
+       COMPREPLY=( $( compgen -W '-C -M -c -f -s -h' -- "$cur" ) )
+       ;;
+    *)
+      _filedir
+      return 0
+      ;;
+  esac
+
+  true
+} &&
 complete -F _arch-nspawn arch-nspawn
+
+_arch-bwrap() {
+  local cur
+  COMPREPLY=()
+  _get_comp_words_by_ref cur
+
+  case $cur in
+    -*)
+       COMPREPLY=( $( compgen -W '-C -M -c -f -d -D -s -r -h' -- "$cur" ) )
+       ;;
+    *)
+      _filedir
+      return 0
+      ;;
+  esac
+
+  true
+} &&
+complete -F _arch-bwrap arch-bwrap
+
 # ex:et ts=2 sw=2 ft=sh

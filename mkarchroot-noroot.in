@@ -1,0 +1,95 @@
+#!/bin/bash
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+m4_include(lib/common.sh)
+m4_include(lib/archroot.sh)
+
+# umask might have been changed in /etc/profile
+# ensure that sane default is set again
+umask 0022
+
+working_dir=''
+umode=''
+
+files=()
+nspawn_args=()
+
+usage() {
+	echo "Usage: ${0##*/} [options] working-dir package-list..."
+	echo ' options:'
+	echo '    -U            Use pacman -U to install packages'
+	echo '    -C <file>     Location of a pacman config file'
+	echo '    -M <file>     Location of a makepkg config file'
+	echo '    -c <dir>      Set pacman cache'
+	echo '    -f <file>     Copy file from the host to the chroot'
+	echo '    -s            Do not run setarch'
+	echo '    -h            This message'
+	exit 1
+}
+
+while getopts 'hUC:M:c:f:s' arg; do
+	case "$arg" in
+		U) umode=U ;;
+		C) pac_conf="$OPTARG" ;;
+		M) makepkg_conf="$OPTARG" ;;
+		c) cache_dirs+=("$OPTARG") ;;
+		f) files+=("$OPTARG") ;;
+		s) nosetarch=1 ;;
+		h|?) usage ;;
+		*) error "invalid argument '%s'" "$arg"; usage ;;
+	esac
+	if [[ $arg != U && $arg != r ]]; then
+		nspawn_args+=("-$arg")
+		[[ -v OPTARG ]] && nspawn_args+=("$OPTARG")
+	fi
+done
+shift $((OPTIND - 1))
+
+(( $# < 2 )) && die 'You must specify a directory and one or more packages.'
+
+working_dir="$(readlink -f "$1")"
+shift 1
+
+[[ -z $working_dir ]] && die 'Please specify a working directory.'
+
+
+if (( ${#cache_dirs[@]} == 0 )); then
+	mapfile -t cache_dirs < <(pacman-conf CacheDir)
+fi
+
+umask 0022
+
+[[ -e $working_dir ]] && die "Working directory '%s' already exists" "$working_dir"
+
+mkdir -p "$working_dir"
+
+lock 9 "${working_dir}.lock" "Locking chroot"
+
+if is_btrfs "$working_dir"; then
+	rmdir "$working_dir"
+	if ! btrfs subvolume create "$working_dir"; then
+		die "Couldn't create subvolume for '%s'" "$working_dir"
+	fi
+	chmod 0755 "$working_dir"
+fi
+
+for file in "${files[@]}"; do
+	mkdir -p "$(dirname "$working_dir$file")"
+	cp "$file" "$working_dir$file"
+done
+
+pacstrap-noroot -${umode}Mcd ${pac_conf:+-C "$pac_conf"} "$working_dir" \
+	"${cache_dirs[@]/#/--cachedir=}" "$@" || die 'Failed to install all packages'
+
+printf '%s.UTF-8 UTF-8\n' en_US de_DE > "$working_dir/etc/locale.gen"
+echo 'LANG=en_US.UTF-8' > "$working_dir/etc/locale.conf"
+echo "$CHROOT_VERSION" > "$working_dir/.arch-chroot"
+
+systemd-machine-id-setup --root="$working_dir"
+
+nspawn_args+=("-r")
+
+exec arch-bwrap \
+	"${nspawn_args[@]}" \
+	"$working_dir" locale-gen

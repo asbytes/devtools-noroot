@@ -6,6 +6,7 @@ MANDIR = $(PREFIX)/share/man
 
 IN_PROGS = \
 	archco \
+	arch-bwrap \
 	arch-nspawn \
 	archrelease \
 	archbuild \
@@ -17,7 +18,9 @@ IN_PROGS = \
 	lddd \
 	makerepropkg \
 	mkarchroot \
+	mkarchroot-noroot \
 	makechrootpkg \
+	makechrootpkg-noroot \
 	offload-build \
 	rebuildpkgs \
 	sogrep
@@ -72,14 +75,17 @@ BASHCOMPLETION_LINKS = \
 
 MANS = \
 	doc/archbuild.1 \
+	doc/arch-bwrap.1 \
 	doc/arch-nspawn.1 \
 	doc/makechrootpkg.1 \
+	doc/makechrootpkg-noroot.1 \
 	doc/lddd.1 \
 	doc/checkpkg.1 \
 	doc/offload-build.1 \
 	doc/sogrep.1 \
 	doc/makerepropkg.1 \
 	doc/mkarchroot.1 \
+	doc/mkarchroot-noroot.1 \
 	doc/find-libdeps.1 \
 	doc/find-libprovides.1 \
 	doc/devtools.7

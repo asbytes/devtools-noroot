@@ -1,0 +1,174 @@
+#!/bin/bash
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+m4_include(lib/common.sh)
+m4_include(lib/archroot.sh)
+
+# umask might have been changed in /etc/profile
+# ensure that sane default is set again
+umask 0022
+
+working_dir=''
+fakeroot=''
+chroot_cache_dir="/var/cache/pacman-chroot/pkg"
+
+files=()
+mount_args=()
+
+usage() {
+	echo "Usage: ${0##*/} [options] working-dir [bwrap arguments]"
+	echo "A wrapper around bubblewrap. Provides support for pacman."
+	echo
+	echo ' options:'
+	echo '    -C <file>     Location of a pacman config file'
+	echo '    -M <file>     Location of a makepkg config file'
+	echo '    -c <dir>      Set pacman cache'
+	echo '    -f <file>     Copy file from the host to the chroot'
+	echo '    -d <dir>      Bind directory into build chroot as read-write'
+	echo '    -D <dir>      Bind directory into build chroot as read-only'
+	echo '    -s            Do not run setarch'
+	echo '    -r            Run command as fake root inside chroot'
+	echo '    -h            This message'
+	exit 1
+}
+
+_parse_bind_args() {
+	set -f
+	OLD_IFS=$IFS
+	IFS=','
+	local arg=$1
+	local ro=${2:-}
+	mp=($arg)
+	if [[ ${#mp[@]} == 1 ]]; then
+		mount_args+=("-$ro-bind ${mp[0]} ${mp[0]}")
+	else
+		if [[ ${#mp[@]} == 2 ]]; then
+			mount_args+=("-$ro-bind ${mp[0]} ${mp[1]}")
+		else
+			die "Wrong number of arguments to bind into chroot"
+		fi
+	fi
+	IFS=$OLD_IFS
+}
+
+while getopts 'hC:M:c:f:d:D:sr' arg; do
+	case "$arg" in
+		C)  pac_conf="$OPTARG" ;;
+		M)  makepkg_conf="$OPTARG" ;;
+		c)  cache_dirs+=("$OPTARG") ;;
+		f)  files+=("$OPTARG") ;;
+		D)  _parse_bind_args "$OPTARG" "-ro" ;;
+		d)  _parse_bind_args "$OPTARG";;
+		s)  nosetarch=1 ;;
+		r)  fakeroot='fakechroot -- fakeroot -- ' ;;
+		h|?) usage ;;
+		*)  error "invalid argument '%s'" "$arg"; usage ;;
+	esac
+done
+shift $((OPTIND - 1))
+
+(( $# < 1 )) && die 'You must specify a directory.'
+
+working_dir=$(readlink -f "$1")
+shift 1
+
+[[ -z $working_dir ]] && die 'Please specify a working directory.'
+
+mkdir -p "$working_dir$chroot_cache_dir"
+
+if (( ${#cache_dirs[@]} == 0 )); then
+	temp_array=()
+	mapfile -t temp_array < <(pacman-conf --config "${pac_conf:-$working_dir/etc/pacman.conf}" CacheDir)
+	for value in "${temp_array[@]}";
+	do
+		[[ "${value}" != "${chroot_cache_dir}" ]] && cache_dirs+=($value)
+	done
+fi
+
+# shellcheck disable=2016
+host_mirrors=($(pacman-conf --repo extra Server 2> /dev/null | sed -r 's#(.*/)extra/os/.*#\1$repo/os/$arch#'))
+
+for host_mirror in "${host_mirrors[@]}"; do
+	if [[ $host_mirror == *file://* ]]; then
+		host_mirror=$(echo "$host_mirror" | sed -r 's#file://(/.*)/\$repo/os/\$arch#\1#g')
+		for m in "$host_mirror"/pool/*/; do
+			in_array "$m" "${cache_dirs[@]}" || cache_dirs+=("$m")
+		done
+	fi
+done
+
+while read -r line; do
+	mapfile -t lines < <(pacman-conf --config "${pac_conf:-$working_dir/etc/pacman.conf}" \
+		--repo $line Server | sed -r 's#(.*/)[^/]+/os/.+#\1#')
+	for line in "${lines[@]}"; do
+		if [[ $line = file://* ]]; then
+			line=${line#file://}
+			in_array "$line" "${cache_dirs[@]}" || cache_dirs+=("$line")
+		fi
+	done
+done < <(pacman-conf --config "${pac_conf:-$working_dir/etc/pacman.conf}" --repo-list)
+
+for cache_dir in "${cache_dirs[@]}"; do
+	mount_args+=("--ro-bind ${cache_dir} ${cache_dir}")
+done
+
+# {{{ functions
+copy_hostconf () {
+	bwrap --unshare-pid --new-session --die-with-parent --ro-bind / / --bind "$working_dir" "$working_dir" --dev /dev \
+		gpg --homedir "$working_dir"/etc/pacman.d/gnupg/ --no-permission-warning --quiet --batch --import \
+		--import-options import-local-sigs "$(pacman-conf GpgDir)"/pubring.gpg >/dev/null 2>&1
+	bwrap --unshare-pid --new-session --die-with-parent --ro-bind / / --bind "$working_dir" "$working_dir" --dev /dev \
+		fakechroot -- fakeroot -- pacman-key --gpgdir "$working_dir"/etc/pacman.d/gnupg/ --import-trustdb "$(pacman-conf GpgDir)" >/dev/null 2>&1
+
+	printf 'Server = %s\n' "${host_mirrors[@]}" >"$working_dir/etc/pacman.d/mirrorlist"
+
+	[[ -n $pac_conf ]] && cp "$pac_conf" "$working_dir/etc/pacman.conf"
+	[[ -n $makepkg_conf ]] && cp "$makepkg_conf" "$working_dir/etc/makepkg.conf"
+
+	local file
+	for file in "${files[@]}"; do
+		mkdir -p "$(dirname "$working_dir$file")"
+		cp -T "$file" "$working_dir$file"
+	done
+
+	sed -r "/^\\s*\[options\]/a CacheDir = ${cache_dirs[*]}" -i "$working_dir/etc/pacman.conf"
+}
+# }}}
+
+umask 0022
+
+# Sanity check
+if [[ ! -f "$working_dir/.arch-chroot" ]]; then
+	die "'%s' does not appear to be an Arch chroot." "$working_dir"
+elif [[ $(cat "$working_dir/.arch-chroot") != "$CHROOT_VERSION" ]]; then
+	die "chroot '%s' is not at version %s. Please rebuild." "$working_dir" "$CHROOT_VERSION"
+fi
+
+sed -r "/^#?\\s*CacheDir.*/d" -i "$working_dir/etc/pacman.conf"
+copy_hostconf
+sed -r "/^CacheDir.+/a CacheDir = ${chroot_cache_dir}" -i "$working_dir/etc/pacman.conf"
+
+eval "$(grep -a '^CARCH=' "$working_dir/etc/makepkg.conf")"
+
+[[ -z $nosetarch ]] || unset CARCH
+if [[ -f "@pkgdatadir@/setarch-aliases.d/${CARCH}" ]]; then
+	read -r set_arch < "@pkgdatadir@/setarch-aliases.d/${CARCH}"
+else
+	set_arch="${CARCH}"
+fi
+
+exec ${CARCH:+setarch "$set_arch"} bwrap \
+	--unshare-all \
+	--share-net \
+	--new-session \
+	--die-with-parent \
+	--bind "$working_dir" / \
+	--tmpfs /tmp \
+	--proc /proc \
+	--dev /dev \
+	--ro-bind /etc/resolv.conf /etc/resolv.conf \
+	--setenv "PATH" "/usr/local/sbin:/usr/local/bin:/usr/bin" \
+	${mount_args[@]} \
+	${fakeroot} \
+	"$@"
