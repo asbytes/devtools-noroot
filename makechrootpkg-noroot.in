@@ -393,7 +393,7 @@ else
 		done
 
 		msg2 "Checking packages"
-		checkpkg --rmdir --warn "${remotepkgs[@]/#file:\/\//}"
+		checkpkg --rmdir --warn --makepkg-config "$copydir/etc/makepkg.conf" "${remotepkgs[@]/#file:\/\//}"
 	fi
 	true
 fi
