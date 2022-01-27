@@ -1,4 +1,4 @@
-V=20211129
+V=20220126
 BUILDTOOLVER ?= $(V)
 
 PREFIX = /usr/local
@@ -152,7 +152,7 @@ tag:
 	@git tag --sign --message "Version $(TODAY)" $(TODAY)
 
 dist:
-	git archive --format=tar --prefix=devtools-$(V)/ $(V) | gzip -9 > devtools-$(V).tar.gz
+	git archive --format=tar --prefix=devtools-$(V)/ $(V) | gzip > devtools-$(V).tar.gz
 	gpg --detach-sign --use-agent devtools-$(V).tar.gz
 
 upload:
